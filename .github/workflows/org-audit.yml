@@ -1,0 +1,97 @@
+name: Organization Audit Monitoring
+
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install GitHub CLI
+        run: |
+          type -p gh || (
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg |
+            sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg &&
+            sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg &&
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" |
+            sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null &&
+            sudo apt update &&
+            sudo apt install gh -y
+          )
+
+      - name: Generate Audit Report
+        env:
+          GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
+        run: |
+
+          ORG="YOUR_ORG_NAME"
+
+          echo "GitHub Organization Audit Report" > report.txt
+          echo "Generated on: $(date)" >> report.txt
+          echo "===================================" >> report.txt
+
+          echo "" >> report.txt
+          echo "Repositories:" >> report.txt
+
+          gh repo list $ORG --limit 500 >> report.txt
+
+          echo "" >> report.txt
+          echo "Recent Branch Create/Delete Events:" >> report.txt
+
+          gh api orgs/$ORG/audit-log \
+          --jq '.[] | select(.action=="repo.create" or .action=="repo.destroy" or .action=="branch.create" or .action=="branch.destroy") | "\(.actor) -> \(.action) -> \(.created_at)"' \
+          >> report.txt
+
+          echo "" >> report.txt
+          echo "Inactive Users (30 Days):" >> report.txt
+
+          repos=$(gh repo list $ORG --limit 500 --json name -q '.[].name')
+
+          for repo in $repos
+          do
+
+            contributors=$(gh api repos/$ORG/$repo/contributors --jq '.[].login' 2>/dev/null)
+
+            for user in $contributors
+            do
+
+              last_commit=$(gh api repos/$ORG/$repo/commits?author=$user --jq '.[0].commit.author.date' 2>/dev/null)
+
+              if [ ! -z "$last_commit" ]; then
+
+                last=$(date -d "$last_commit" +%s)
+                now=$(date +%s)
+
+                diff=$(( (now-last)/86400 ))
+
+                if [ $diff -gt 30 ]; then
+                  echo "$user inactive in $repo for $diff days" >> report.txt
+                fi
+
+              fi
+
+            done
+
+          done
+
+      - name: Show Report
+        run: cat report.txt
+
+      - name: Send Email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASS }}
+          subject: GitHub Organization Audit Report
+          to: admin@company.com
+          from: GitHub Monitoring
+          body: file://report.txt
