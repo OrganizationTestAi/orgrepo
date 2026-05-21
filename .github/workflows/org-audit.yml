@@ -31,7 +31,7 @@ jobs:
           GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
         run: |
 
-          ORG="YOUR_ORG_NAME"
+          ORG="Dev"
 
           echo "GitHub Organization Audit Report" > report.txt
           echo "Generated on: $(date)" >> report.txt
