@@ -1,42 +1,112 @@
-name: Test Organization Secret
+name: GitHub Organization Monitoring
 
 on:
+  schedule:
+    - cron: '0 8 * * *'
   workflow_dispatch:
 
 jobs:
 
-  test:
+  monitor:
     runs-on: ubuntu-latest
 
     steps:
 
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Test Secret
-        env:
-          GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
-        run: |
-
-          if [ -z "$GH_TOKEN" ]; then
-            echo "TOKEN EMPTY"
-            exit 1
-          else
-            echo "TOKEN FOUND"
-          fi
 
       - name: Install GitHub CLI
         run: |
           sudo apt update
           sudo apt install gh -y
 
-      - name: Test GitHub Access
+      - name: Generate GitHub Audit Report
         env:
           GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
         run: |
 
-          gh auth status
-
           ORG="Dev"
 
-          gh repo list $ORG --limit 10
+          REPORT="report.txt"
+
+          echo "===================================" > $REPORT
+          echo "GitHub Organization Audit Report" >> $REPORT
+          echo "Generated: $(date)" >> $REPORT
+          echo "===================================" >> $REPORT
+
+          echo "" >> $REPORT
+          echo "Repositories in Organization:" >> $REPORT
+          echo "-----------------------------------" >> $REPORT
+
+          gh repo list $ORG --limit 500 >> $REPORT
+
+          echo "" >> $REPORT
+          echo "Recent Audit Events:" >> $REPORT
+          echo "-----------------------------------" >> $REPORT
+
+          gh api orgs/$ORG/audit-log \
+          --jq '.[] |
+          select(
+            .action=="repo.create" or
+            .action=="repo.destroy" or
+            .action=="branch.create" or
+            .action=="branch.destroy"
+          ) |
+          "\(.actor) -> \(.action) -> \(.created_at)"' \
+          >> $REPORT
+
+          echo "" >> $REPORT
+          echo "Inactive Users (30+ Days):" >> $REPORT
+          echo "-----------------------------------" >> $REPORT
+
+          repos=$(gh repo list $ORG --limit 500 --json name -q '.[].name')
+
+          for repo in $repos
+          do
+
+            echo "Checking repository: $repo"
+
+            contributors=$(gh api repos/$ORG/$repo/contributors \
+            --jq '.[].login' 2>/dev/null)
+
+            for user in $contributors
+            do
+
+              LAST_COMMIT=$(gh api \
+              repos/$ORG/$repo/commits?author=$user \
+              --jq '.[0].commit.author.date' 2>/dev/null)
+
+              if [ ! -z "$LAST_COMMIT" ]; then
+
+                LAST=$(date -d "$LAST_COMMIT" +%s)
+                NOW=$(date +%s)
+
+                DIFF=$(( (NOW-LAST)/86400 ))
+
+                if [ $DIFF -gt 30 ]; then
+
+                  echo "$user inactive in $repo for $DIFF days" >> $REPORT
+
+                fi
+
+              fi
+
+            done
+
+          done
+
+      - name: Show Report
+        run: |
+          cat report.txt
+
+      - name: Send Email Report
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASS }}
+          subject: GitHub Organization Audit Report
+          to: your-email@gmail.com
+          from: GitHub Monitoring
+          body: file://report.txt
