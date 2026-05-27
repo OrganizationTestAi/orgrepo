@@ -3,18 +3,16 @@
     GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
   run: |
 
-    echo "Checking authentication..."
+    echo "Authentication Status"
 
     gh auth status
 
     echo ""
-    echo "Testing API..."
+    echo "Current User"
 
     gh api user
 
     echo ""
-    echo "Listing organization repos..."
+    echo "Listing My Repositories"
 
-    ORG="Dev"
-
-    gh repo list $ORG --limit 10
+    gh repo list --limit 10
