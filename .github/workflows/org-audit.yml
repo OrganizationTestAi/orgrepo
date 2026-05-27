@@ -1,18 +1,50 @@
-- name: Test GitHub Access
-  env:
-    GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
-  run: |
+name: Test Organization Secret
 
-    echo "Authentication Status"
+on:
+  workflow_dispatch:
 
-    gh auth status
+jobs:
 
-    echo ""
-    echo "Current User"
+  test:
+    runs-on: ubuntu-latest
 
-    gh api user
+    steps:
 
-    echo ""
-    echo "Listing My Repositories"
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    gh repo list --limit 10
+      - name: Test Secret
+        env:
+          GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
+        run: |
+
+          if [ -z "$GH_TOKEN" ]; then
+            echo "TOKEN EMPTY"
+            exit 1
+          else
+            echo "TOKEN FOUND"
+          fi
+
+      - name: Install GitHub CLI
+        run: |
+          sudo apt update
+          sudo apt install gh -y
+
+      - name: Test GitHub Access
+        env:
+          GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
+        run: |
+
+          echo "Checking GitHub Authentication"
+
+          gh auth status
+
+          echo ""
+          echo "Getting Current User"
+
+          gh api user
+
+          echo ""
+          echo "Listing Repositories"
+
+          gh repo list --limit 10
