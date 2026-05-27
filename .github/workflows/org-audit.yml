@@ -1,11 +1,13 @@
-name: Test Organization Secret
+name: GitHub Monitoring
 
 on:
+  schedule:
+    - cron: '30 0 * * *'
   workflow_dispatch:
 
 jobs:
 
-  test:
+  monitor:
     runs-on: ubuntu-latest
 
     steps:
@@ -13,38 +15,79 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Test Secret
-        env:
-          GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
-        run: |
-
-          if [ -z "$GH_TOKEN" ]; then
-            echo "TOKEN EMPTY"
-            exit 1
-          else
-            echo "TOKEN FOUND"
-          fi
-
       - name: Install GitHub CLI
         run: |
           sudo apt update
           sudo apt install gh -y
 
-      - name: Test GitHub Access
+      - name: Generate Monitoring Report
         env:
           GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
         run: |
 
-          echo "Checking GitHub Authentication"
+          REPORT="report.txt"
 
-          gh auth status
+          echo "==================================" > $REPORT
+          echo "GitHub Monitoring Report" >> $REPORT
+          echo "Generated: $(date)" >> $REPORT
+          echo "==================================" >> $REPORT
 
-          echo ""
-          echo "Getting Current User"
+          echo "" >> $REPORT
+          echo "Repositories" >> $REPORT
+          echo "----------------------------------" >> $REPORT
 
-          gh api user
+          gh repo list --limit 100 >> $REPORT
 
-          echo ""
-          echo "Listing Repositories"
+          echo "" >> $REPORT
+          echo "Recent Events" >> $REPORT
+          echo "----------------------------------" >> $REPORT
 
-          gh repo list --limit 10
+          gh api users/keerthireddy1225/events \
+          --jq '.[] |
+          select(
+            .type=="CreateEvent" or
+            .type=="DeleteEvent" or
+            .type=="PushEvent"
+          ) |
+          "\(.actor.login) -> \(.type) -> \(.repo.name) -> \(.created_at)"' \
+          >> $REPORT
+
+          echo "" >> $REPORT
+          echo "Inactive Repositories (30 Days)" >> $REPORT
+          echo "----------------------------------" >> $REPORT
+
+          repos=$(gh repo list --limit 100 --json name -q '.[].name')
+
+          for repo in $repos
+          do
+
+            LAST_UPDATE=$(gh repo view $repo --json pushedAt -q '.pushedAt')
+
+            LAST=$(date -d "$LAST_UPDATE" +%s)
+            NOW=$(date +%s)
+
+            DIFF=$(( (NOW-LAST)/86400 ))
+
+            if [ $DIFF -gt 30 ]; then
+
+              echo "$repo inactive for $DIFF days" >> $REPORT
+
+            fi
+
+          done
+
+      - name: Display Report
+        run: |
+          cat report.txt
+
+      - name: Send Email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASS }}
+          subject: GitHub Monitoring Report
+          to: keerthireddyk57@gmail.com
+          from: GitHub Monitoring
+          body: file://report.txt 
