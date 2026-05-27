@@ -1,93 +1,72 @@
-name: GitHub Monitoring
+name: GitHub Governance Report
 
 on:
-  schedule:
-    - cron: '30 0 * * *'
   workflow_dispatch:
+  schedule:
+    - cron: '30 0 * * *'   # 8:30 PM EST
 
 jobs:
-
-  monitor:
+  report:
     runs-on: ubuntu-latest
 
     steps:
 
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install GitHub CLI
+      - name: Install tools
         run: |
           sudo apt update
-          sudo apt install gh -y
+          sudo apt install gh jq -y
 
-      - name: Generate Monitoring Report
+      - name: Generate CSV Report
         env:
           GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
         run: |
 
-          REPORT="report.txt"
+          USER=$(gh api user --jq '.login')
 
-          echo "==================================" > $REPORT
-          echo "GitHub Monitoring Report" >> $REPORT
-          echo "Generated: $(date)" >> $REPORT
-          echo "==================================" >> $REPORT
+          echo "repo,owner,branch,last_commit_author,last_commit_date,commit_count,pr_count" > report.csv
 
-          echo "" >> $REPORT
-          echo "Repositories" >> $REPORT
-          echo "----------------------------------" >> $REPORT
-
-          gh repo list --limit 100 >> $REPORT
-
-          echo "" >> $REPORT
-          echo "Recent Events" >> $REPORT
-          echo "----------------------------------" >> $REPORT
-
-          gh api users/keerthireddy1225/events \
-          --jq '.[] |
-          select(
-            .type=="CreateEvent" or
-            .type=="DeleteEvent" or
-            .type=="PushEvent"
-          ) |
-          "\(.actor.login) -> \(.type) -> \(.repo.name) -> \(.created_at)"' \
-          >> $REPORT
-
-          echo "" >> $REPORT
-          echo "Inactive Repositories (30 Days)" >> $REPORT
-          echo "----------------------------------" >> $REPORT
-
-          repos=$(gh repo list --limit 100 --json name -q '.[].name')
+          repos=$(gh repo list $USER --limit 100 --json name --jq '.[].name')
 
           for repo in $repos
           do
+            echo "Processing $repo"
 
-            LAST_UPDATE=$(gh repo view $repo --json pushedAt -q '.pushedAt')
+            branch=$(gh repo view $USER/$repo --json defaultBranchRef --jq '.defaultBranchRef.name')
 
-            LAST=$(date -d "$LAST_UPDATE" +%s)
-            NOW=$(date +%s)
+            last_commit_author=$(gh api repos/$USER/$repo/commits/$branch --jq '.commit.author.name' 2>/dev/null)
+            last_commit_date=$(gh api repos/$USER/$repo/commits/$branch --jq '.commit.author.date' 2>/dev/null)
 
-            DIFF=$(( (NOW-LAST)/86400 ))
+            commit_count=$(gh api repos/$USER/$repo/commits --jq 'length' 2>/dev/null)
+            pr_count=$(gh api repos/$USER/$repo/pulls --jq 'length' 2>/dev/null)
 
-            if [ $DIFF -gt 30 ]; then
-
-              echo "$repo inactive for $DIFF days" >> $REPORT
-
-            fi
+            echo "$repo,$USER,$branch,$last_commit_author,$last_commit_date,$commit_count,$pr_count" >> report.csv
 
           done
 
-      - name: Display Report
-        run: |
-          cat report.txt
+      - name: Show CSV
+        run: cat report.csv
 
-      - name: Send Email
+      - name: Send Email with CSV
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 587
           username: ${{ secrets.EMAIL_USER }}
           password: ${{ secrets.EMAIL_PASS }}
-          subject: GitHub Monitoring Report
-          to: keerthireddyk57@gmail.com
-          from: GitHub Monitoring
-          body: file://report.txt 
+          subject: "GitHub Governance Report (CSV)"
+          to: ${{ secrets.REPORT_EMAIL }}
+          from: GitHub Bot
+          body: |
+            Hi,
+
+            Please find attached the latest GitHub governance report.
+
+            This includes:
+            - Repositories
+            - Branch details
+            - Last commit info
+            - PR counts
+
+            Regards,
+            GitHub Automation Bot
+          attachments: report.csv
