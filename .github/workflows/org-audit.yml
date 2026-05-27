@@ -25,7 +25,7 @@ jobs:
           GH_TOKEN: ${{ secrets.ORG_GITHUB_TOKEN }}
         run: |
 
-          ORG="OrganizationTestAi"
+          ORG="keerthireddy1225"
 
           REPORT="report.txt"
 
