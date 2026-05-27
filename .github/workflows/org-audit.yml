@@ -54,7 +54,7 @@ jobs:
           username: ${{ secrets.EMAIL_USER }}
           password: ${{ secrets.EMAIL_PASS }}
           subject: "GitHub Governance Report (CSV)"
-          to: ${{ secrets.REPORT_EMAIL }}
+          to: ${{ secrets.EMAIL_USER }}
           from: GitHub Bot
           body: |
             Hi,
